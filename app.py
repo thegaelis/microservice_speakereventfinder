@@ -1,3 +1,4 @@
+# Import required Flask modules and configuration
 from flask import Flask, request, g
 import logging
 import time
@@ -8,15 +9,36 @@ from routes.api import api_bp
 
 
 def create_app() -> Flask:
+    # Create and configure the Flask application
     app = Flask(__name__)
     app.config['JSON_SORT_KEYS'] = settings.JSON_SORT_KEYS
 
-    # Configure logging level and format
+    # Set up logging system for debugging
+    _configure_logging(app)
+    
+    # Register main API blueprint under /api/v1 prefix
+    app.register_blueprint(api_bp, url_prefix="/api/v1")
+    app.logger.debug("Registered blueprint 'api_bp' at /api/v1")
+    print("[INIT] Registered blueprint 'api_bp' at /api/v1", flush=True)
+
+    # Add request tracking and timing middleware
+    _setup_request_middleware(app)
+
+    @app.route("/")
+    def index():
+        # Health check endpoint
+        return "<h1>Event & Speaker Finder Microservice</h1>"
+
+    return app
+
+
+def _configure_logging(app: Flask) -> None:
+    # Set up logging configuration for the microservice
     log_level = logging.DEBUG if getattr(settings, "DEBUG", False) else logging.INFO
     logging.basicConfig(
         level=log_level,
         format='%(asctime)s %(levelname)s %(name)s - %(message)s',
-        handlers=[logging.StreamHandler(sys.stdout)],  # force stdout like printf
+        handlers=[logging.StreamHandler(sys.stdout)],  # Send logs to stdout for container compatibility
     )
     app.logger.setLevel(log_level)
     logging.getLogger('werkzeug').setLevel(log_level)
@@ -27,18 +49,18 @@ def create_app() -> Flask:
     )
     print(f"[INIT] host={getattr(settings, 'HOST', '0.0.0.0')} port={getattr(settings, 'PORT', '')} debug={getattr(settings, 'DEBUG', False)}", flush=True)
 
-    # Register blueprints
-    app.register_blueprint(api_bp, url_prefix="/api/v1")
-    app.logger.debug("Registered blueprint 'api_bp' at /api/v1")
-    print("[INIT] Registered blueprint 'api_bp' at /api/v1", flush=True)
 
+def _setup_request_middleware(app: Flask) -> None:
+    # Add middleware for request tracking, timing, and debugging
+    
     @app.before_request
-    def _debug_before_request():
-        # Correlate logs with a per-request ID
+    def _before_request():
+        # Log incoming requests and assign correlation ID
+        # Create unique ID for tracking this request through logs
         g.request_id = request.headers.get('X-Request-ID', str(uuid.uuid4()))
         g._start_time = time.perf_counter()
 
-        # Safely sample request body (avoid huge payloads)
+        # Get request body preview for debugging (limit size to avoid memory issues)
         body_preview = ""
         try:
             raw = request.get_data(cache=True, as_text=True) or ""
@@ -59,7 +81,8 @@ def create_app() -> Flask:
         print(f"[REQ {g.request_id}] -> {request.method} {request.path} args={dict(request.args)} json={request.get_json(silent=True)} remote={request.remote_addr}", flush=True)
 
     @app.after_request
-    def _debug_after_request(response):
+    def _after_request(response):
+        # Log response details with timing
         duration_ms = None
         if hasattr(g, "_start_time"):
             duration_ms = round((time.perf_counter() - g._start_time) * 1000, 2)
@@ -74,24 +97,20 @@ def create_app() -> Flask:
         )
         print(f"[REQ {getattr(g, 'request_id', '-')} ] <- {response.status_code} {size}B in {duration_ms if duration_ms is not None else '?'}ms", flush=True)
 
-        # Propagate correlation and timing headers
+        # Add correlation and timing headers for monitoring
         response.headers['X-Request-ID'] = getattr(g, 'request_id', '')
         if duration_ms is not None:
             response.headers['X-Response-Time-ms'] = str(duration_ms)
         return response
 
     @app.teardown_request
-    def _debug_teardown_request(error=None):
+    def _teardown_request(error=None):
+        # Handle request teardown and errors
         if error is not None:
             app.logger.exception("[%s] Teardown with error: %s", getattr(g, 'request_id', '-'), error)
 
-    @app.route("/")
-    def index():
-        return "<h1>Event & Speaker Finder Microservice</h1>"
-
-    return app
-
 
 if __name__ == "__main__":
+    # Run the microservice in development mode
     app = create_app()
     app.run(host=settings.HOST, port=settings.PORT, debug=settings.DEBUG)
