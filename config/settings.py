@@ -75,6 +75,11 @@ SEARCH_PROVIDERS = [
         "query": lambda speaker: f'"{speaker}" speaker bureau speaking engagements bookings {CURRENT_YEAR} {NEXT_YEAR}',
         "query_with_type": lambda speaker, event_type: f'"{speaker}" speaker bureau {event_type} speaking engagements bookings {CURRENT_YEAR} {NEXT_YEAR}',
     },
+    {
+        "name": "duckduckgo",
+        "query": lambda speaker: f'"{speaker}" speaking events conference talk {CURRENT_YEAR} {NEXT_YEAR} upcoming schedule',
+        "query_with_type": lambda speaker, event_type: f'"{speaker}" {event_type} speaking events conference talk {CURRENT_YEAR} {NEXT_YEAR} upcoming',
+    },
 ]
 
 # Batch processing for LLM requests - cứ 3 nguồn thì gửi chung 1 LLM request
